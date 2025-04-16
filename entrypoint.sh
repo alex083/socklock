@@ -12,7 +12,6 @@ REMOTE_PORT=${REMOTE_PORT:-3405}
 PROXY_MODE=${PROXY_MODE:-socks5}
 SERVER_IP=$(curl -s ifconfig.me)
 
-
 CONFIG_FILE="/configs/3proxy.cfg"
 TMP_CONFIG="/tmp/3proxy_new.cfg"
 USER_MAP_FILE="/configs/user-map.txt"
@@ -22,6 +21,7 @@ mkdir -p /configs
 
 declare -A USER_IP_MAP
 declare -A USED_IPS
+max_id=5999
 
 # === Загрузка ранее закреплённых логинов ===
 load_user_map() {
@@ -29,6 +29,10 @@ load_user_map() {
     while IFS=":" read -r user ip; do
       USER_IP_MAP["$user"]="$ip"
       USED_IPS["$ip"]=1
+      id="${user#user}"
+      if [[ "$id" =~ ^[0-9]+$ && $id -gt $max_id ]]; then
+        max_id=$id
+      fi
     done < "$USER_MAP_FILE"
   fi
 }
@@ -71,11 +75,9 @@ generate_config() {
 
   for ip in $IP_LIST; do
     [[ ${USED_IPS[$ip]} ]] && continue
-    user="user$(shuf -i 1000-9999 -n 1)"
-    while [[ -n "${USER_IP_MAP[$user]}" ]]; do
-      user="user$(shuf -i 1000-9999 -n 1)"
-    done
     if check_proxy "$ip"; then
+      ((max_id++))
+      user="user$max_id"
       USER_IP_MAP["$user"]="$ip"
       USED_IPS["$ip"]=1
       echo "[+] Назначен IP $ip для $user"
@@ -110,7 +112,6 @@ generate_config() {
     echo "socks -p$PORT -a -i0.0.0.0 -n" >> "$TMP_CONFIG"
   fi
 
-  # Обновляем только если изменилось
   if ! cmp -s "$TMP_CONFIG" "$CONFIG_FILE"; then
     echo "[~] Конфигурация изменилась, перезапуск 3proxy..."
     cp "$TMP_CONFIG" "$CONFIG_FILE"
@@ -127,10 +128,8 @@ generate_config() {
   cat "$PROXY_LIST"
 }
 
-# === Первый запуск ===
 generate_config
 
-# === Циклический автообновление ===
 while true; do
   sleep 3600
   echo "[*] Обновление конфигурации по таймеру..."
